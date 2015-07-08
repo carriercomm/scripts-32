@@ -1,0 +1,133 @@
+#!/bin/bash
+#
+# Clone from Template
+#
+# be sure to put "/Applications/VMware Fusion.app/Contents/Library" in your PATH variable
+# For this script I created a template manually and installed my ssh public key for root in it.
+# If you don't do that you have to enter the root password of the cloned VM  at the end of the script.
+
+
+# Folder holding all VM's, use the full path here, no ~ 
+VMDIR="/Users/matthias/Documents/Virtual Machines.localized"
+
+# Get already created VM's
+SOURCE=($(ls -1 "$VMDIR"))
+
+# Default VM to clone
+VM="$VMDIR/centos7_template.vmwarevm/centos7_template.vmx"
+
+# Domain
+DOMAIN="fritz.box"
+
+if [ -z $SOURCE ]; then
+  echo "No virtual machine to clone"
+  exit 1
+fi
+
+while true; do
+  while true; do
+    echo "Default                : $VM"
+    read -p "use default [y/n] ? " CHOICE
+    case $CHOICE in
+      y)
+	QUELLE=$VM
+	break
+	;;
+      n)
+	echo
+	echo "Following machines found :"
+	echo
+	for i in `seq 0 50`; do
+	  if [ -z ${SOURCE[$i]} ]; then
+	    break
+	  else
+	    echo -e "$i\t$(echo ${SOURCE[$i]}| cut -d. -f1)"
+	  fi
+	done
+	read -p "Choose VM Number to clone : " VM
+	QUELLE="$VMDIR/${SOURCE[$VM]}/$(echo ${SOURCE[VM]}| cut -d. -f1).vmx"
+	break
+	;;
+      *)
+	echo
+	echo "press y or n ..."
+	;;
+    esac
+  done
+  echo
+  read -p "Enter clone name               : " KLONNAME
+  echo
+  echo    "Source                         : $QUELLE"
+  echo    "Destination                    : $VMDIR/$KLONNAME.vmwarevm/$KLONNAME.vmx"
+  echo    "Clone-Name                     : $KLONNAME"
+
+  read -p "All correct [y/n]? " CHOICE
+  case $CHOICE in
+    y)
+        break
+	;;
+    n)
+	;;
+    *)
+        echo
+	echo "press y or no ..."
+	;;
+  esac
+done
+
+mkdir "$VMDIR/$KLONNAME.vmwarevm"
+echo
+echo "Create Dir $VMDIR/$KLONNAME.vmwarevm ..."
+echo "Cloning VM ..."
+vmrun -T fusion clone "$QUELLE" "$VMDIR/$KLONNAME.vmwarevm/$KLONNAME.vmx" full -cloneName=$KLONNAME
+
+if [ $? -eq 0 ]; then
+  echo "VM cloned."
+else
+  echo "Error cloning the VM. Exiting..."
+  exit 1
+fi
+
+while true; do
+read -p "Turn the Clone on [y/n]? " CHOICE2
+case $CHOICE2 in
+  y)
+    echo
+    vmrun -T fusion start "$VMDIR/$KLONNAME.vmwarevm/$KLONNAME.vmx"
+    break
+    ;;
+  n)
+    echo
+    echo "To register the new VM to Fusion you have to start the VM manually with the following command:"
+    echo "vmrun -T fusion start \"$VMDIR/$KLONNAME.vmwarevm/$KLONNAME.vmx\""
+    echo
+    break
+    ;;
+  *)
+    echo
+    echo "press y or no ..."
+    ;;
+esac
+done
+
+echo "Wait a minute or go make a coffee..."
+while true; do
+	GUESTIP=$(vmrun getGuestIPAddress "$VMDIR/$KLONNAME.vmwarevm/$KLONNAME.vmx")
+	echo $GUESTIP |grep -e "192.168."
+	if [ $? -eq 0 ]; then
+		break
+	fi
+done
+echo "Guest IP is: $GUESTIP"
+ssh root@$GUESTIP -oStrictHostKeyChecking=no "hostname $KLONNAME"
+echo "Set Hostname $KLONNAME ..."
+ssh root@$GUESTIP -oStrictHostKeyChecking=no "echo \"$GUESTIP  $KLONNAME.$DOMAIN $KLONNAME\" >> /etc/hosts"
+ssh root@$GUESTIP -oStrictHostKeyChecking=no "echo \"$KLONNAME\" > /etc/hostname"
+
+echo "Edit Hosts-File ..."
+ssh root@$GUESTIP -oStrictHostKeyChecking=no 'echo "send host-name = git" >> /etc/dhcp/dhclient.conf'
+echo "Set DHCP settings..."
+ssh root@$GUESTIP -oStrictHostKeyChecking=no "systemctl restart network"
+echo "Network-Service restart..."
+
+exit 0
