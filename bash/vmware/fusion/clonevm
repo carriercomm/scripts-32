@@ -19,6 +19,9 @@ VM="$VMDIR/centos7_template.vmwarevm/centos7_template.vmx"
 # Domain
 DOMAIN="fritz.box"
 
+# Path to Ansible Hosts
+ANSHOSTS="/Users/matthias/ansible/hosts"
+
 if [ -z $SOURCE ]; then
   echo "No virtual machine to clone"
   exit 1
@@ -130,4 +133,28 @@ echo "Set DHCP settings..."
 ssh root@$GUESTIP -oStrictHostKeyChecking=no "systemctl restart network"
 echo "Network-Service restart..."
 
+# begin ansible part
+if [ -f $(which ansible) ]; then
+	echo "Adding VM to ansible..."
+	ANSHOSTGROUPS=($(egrep "^\[.*\]$" $ANSHOSTS |sed 's/\[/\\\[/g' |sed 's/\]/\\\]/g'))
+	echo
+	echo "Ansible Hostgroups found:"
+	for i in `seq 0 50`; do
+		if [ -z ${ANSHOSTGROUPS[$i]} ]; then
+			break
+			else
+			echo -e "$i\t$(echo ${ANSHOSTGROUPS[$i]}| cut -d. -f1 |tr -d "\\")"
+		fi
+	done
+	read -p "Use one of these groups (y/n) : " GROUPCHOICE
+	if [ $GROUPCHOICE == "n" ]; then
+		read -p "Enter new Hostgroup : " ANSHOSTGROUP
+		echo "Adding group $ANSHOSTGROUP and host to $ANSHOSTS..."
+		echo -e "\n[$ANSHOSTGROUP]\n$KLONNAME.$DOMAIN ansible_ssh_host=$GUESTIP" >> $ANSHOSTS
+	else
+		read -p "Where to add the host (choose number) : " ANSHOSTGROUP
+		echo "Adding host to $(echo ${ANSHOSTGROUPS[$ANSHOSTGROUP]}|tr -d "\\") ..."
+		/usr/bin/awk -v INSERT="$KLONNAME.$DOMAIN ansible_ssh_host=$GUESTIP" "BEGIN {p=0}; /${ANSHOSTGROUPS[2]}/{print \$1;print INSERT;next}1" $ANSHOSTS > /tmp/tmp_hosts && mv -f /tmp/tmp_hosts $ANSHOSTS
+	fi
+fi
 exit 0
